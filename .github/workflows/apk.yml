@@ -1,5 +1,9 @@
 name: Gerar APK (CALLS FFZ)
 on: workflow_dispatch
+
+permissions:
+  contents: write
+
 jobs:
   apk:
     runs-on: ubuntu-latest
@@ -11,10 +15,26 @@ jobs:
         with: { distribution: temurin, java-version: 17 }
       - run: npm install
       - run: npx cap add android
+      - name: Chave fixa de assinatura (se existir)
+        env:
+          KS: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KS" ]; then echo "$KS" | base64 -d > android/ffz.keystore; echo "chave fixa carregada"; else echo "sem chave fixa (assinatura de teste)"; fi
+      - run: pip install --break-system-packages pillow || true
       - run: python3 scripts/preparar.py
       - run: npx cap sync android
       - run: chmod +x android/gradlew && cd android && ./gradlew assembleDebug
+      - name: Mostrar impressão digital do APK
+        run: keytool -printcert -jarfile android/app/build/outputs/apk/debug/app-debug.apk | grep -E "SHA256" || true
+      - run: cp android/app/build/outputs/apk/debug/app-debug.apk CallsFFZ.apk
       - uses: actions/upload-artifact@v4
         with:
           name: calls-ffz-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: CallsFFZ.apk
+      - name: Publicar link fixo de download
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk
+          name: CALLS FFZ (APK)
+          files: CallsFFZ.apk
+          make_latest: true

@@ -1,0 +1,33 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>CALLS FFZ</title>
+<style>
+ body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0f1115;color:#e8eaf0;font-family:system-ui,sans-serif;text-align:center;padding:24px}
+ h1{margin:0 0 6px;font-size:28px} h1 span{opacity:.6;font-weight:400;font-size:14px;display:block;letter-spacing:3px}
+ p{opacity:.8;max-width:320px;margin:14px auto} a.btn{display:inline-block;margin-top:10px;padding:14px 22px;border-radius:12px;background:#fff;color:#000;font-weight:700;text-decoration:none}
+</style></head><body><div>
+<h1>FFZ<span>CALLS</span></h1>
+<p id="msg">Abra o link da call que o bot mandou no Discord (<b>.call</b> ou <b>/call</b>) e ele abre aqui.</p>
+<a class="btn" id="site" href="#">Abrir o site da call</a>
+</div>
+<script src="config.js"></script>
+<script>
+(function () {
+  var base = (window.CALLS_BASE || "").replace(/\/$/, "");
+  document.getElementById("site").href = base + "/call/";
+  function abrir(url) {
+    try {
+      var u = new URL(url);
+      if (base && u.origin === new URL(base).origin && u.pathname.indexOf("/call/") === 0) {
+        document.getElementById("msg").textContent = "Entrando na call…";
+        location.href = u.href;
+      }
+    } catch (e) {}
+  }
+  var App = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
+  if (App) {
+    App.getLaunchUrl().then(function (r) { if (r && r.url) abrir(r.url); }).catch(function () {});
+    App.addListener("appUrlOpen", function (e) { abrir(e.url); });
+  }
+})();
+</script></body></html>

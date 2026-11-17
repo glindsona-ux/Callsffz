@@ -11,6 +11,6 @@ const config: CapacitorConfig = {
     // páginas que o app pode abrir dentro dele (site da call + login do Discord + mídia)
     allowNavigation: [host, 'discord.com', '*.discord.com', '*.livekit.cloud'],
   },
-  android: { allowMixedContent: false },
+  android: { allowMixedContent: false, appendUserAgent: 'CallsFFZApp' },
 };
 export default config;

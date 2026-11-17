@@ -60,7 +60,7 @@ if ks.exists() and gradle.exists():
 else:
     print("AVISO: sem chave fixa; o APK será assinado com a chave de teste")
 
-# ---- ícone do app
+# ---- ícone do app (adaptive icon completo: Android 8+ usa o foreground, o resto usa o PNG)
 icone = raiz / "icon.png"
 res = raiz / "android" / "app" / "src" / "main" / "res"
 if icone.exists():
@@ -70,20 +70,42 @@ if icone.exists():
         lado = min(img.size)
         esq, topo = (img.width - lado) // 2, (img.height - lado) // 2
         img = img.crop((esq, topo, esq + lado, topo + lado))
-        for dens, t in {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}.items():
-            pasta = res / f"mipmap-{dens}"
+        # apaga TODO ícone padrão do Capacitor (xml/png/webp) para não sobrar nenhum
+        for pasta in res.glob("mipmap-*"):
+            shutil.rmtree(pasta, ignore_errors=True)
+        for f in list(res.glob("drawable*/ic_launcher_*")):
+            f.unlink()
+        for f in list(res.glob("values*/ic_launcher_background.xml")):
+            f.unlink()
+        dens = {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}
+        for d, t in dens.items():
+            pasta = res / f"mipmap-{d}"
             pasta.mkdir(parents=True, exist_ok=True)
             q = img.resize((t, t), Image.LANCZOS)
             q.save(pasta / "ic_launcher.png")
             m = Image.new("L", (t * 4, t * 4), 0)
             ImageDraw.Draw(m).ellipse((0, 0, t * 4 - 1, t * 4 - 1), fill=255)
-            r = q.copy()
-            r.putalpha(m.resize((t, t), Image.LANCZOS))
-            r.save(pasta / "ic_launcher_round.png")
-        # remove o ícone adaptativo padrão para valer o PNG acima
-        shutil.rmtree(res / "mipmap-anydpi-v26", ignore_errors=True)
-        print("OK: ícone trocado")
+            r = q.copy(); r.putalpha(m.resize((t, t), Image.LANCZOS)); r.save(pasta / "ic_launcher_round.png")
+            # foreground do adaptive icon: canvas 108dp, arte ocupando ~62% (zona segura)
+            c = t * 108 // 48
+            fg = Image.new("RGBA", (c, c), (0, 0, 0, 0))
+            arte = img.resize((int(c * 0.62), int(c * 0.62)), Image.LANCZOS)
+            fg.paste(arte, ((c - arte.width) // 2, (c - arte.height) // 2))
+            fg.save(pasta / "ic_launcher_foreground.png")
+        (res / "mipmap-anydpi-v26").mkdir(parents=True, exist_ok=True)
+        xml = ('<?xml version="1.0" encoding="utf-8"?>\n'
+               '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
+               '    <background android:drawable="@color/ffz_icon_bg"/>\n'
+               '    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>\n'
+               '</adaptive-icon>\n')
+        (res / "mipmap-anydpi-v26" / "ic_launcher.xml").write_text(xml, encoding="utf-8")
+        (res / "mipmap-anydpi-v26" / "ic_launcher_round.xml").write_text(xml, encoding="utf-8")
+        (res / "values").mkdir(parents=True, exist_ok=True)
+        (res / "values" / "ffz_colors.xml").write_text(
+            '<?xml version="1.0" encoding="utf-8"?>\n<resources><color name="ffz_icon_bg">#FFFFFF</color></resources>\n',
+            encoding="utf-8")
+        print("OK: ícone trocado (adaptive + legado)")
     except Exception as e:
-        print("AVISO: não consegui trocar o ícone:", e)
+        sys.exit(f"ERRO: não consegui trocar o ícone: {e}")   # falha o build em vez de ficar com o ícone padrão
 else:
     print("AVISO: sem icon.png na raiz; ficou o ícone padrão")

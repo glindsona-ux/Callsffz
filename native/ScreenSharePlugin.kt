@@ -5,9 +5,13 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.PowerManager
+import android.provider.Settings
 import android.media.projection.MediaProjectionManager
 import androidx.activity.result.ActivityResult
 import androidx.core.content.ContextCompat
+import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
@@ -68,10 +72,38 @@ class ScreenSharePlugin : Plugin() {
         escopo.launch { limpar(); call.resolve() }
     }
 
-    private fun ligarServicoDeVoz() {
-        // só liga se o microfone já foi liberado (senão o Android recusa o serviço)
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
-        try { ContextCompat.startForegroundService(context, Intent(context, CallService::class.java)) } catch (e: Throwable) {}
+    /** Liga o serviço que mantém a call viva em segundo plano. Só funciona com o microfone já liberado. */
+    private fun ligarServicoDeVoz(): Boolean {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return false
+        return try { ContextCompat.startForegroundService(context, Intent(context, CallService::class.java)); true } catch (e: Throwable) { false }
+    }
+
+    /** Site chama ao entrar (ligar=true) e ao sair da call (ligar=false). */
+    @PluginMethod
+    fun servico(call: PluginCall) {
+        val ligar = call.getBoolean("ligar", true) ?: true
+        if (ligar) {
+            val r = JSObject()
+            r.put("ativo", ligarServicoDeVoz())
+            call.resolve(r)
+        } else {
+            try { context.stopService(Intent(context, CallService::class.java)) } catch (e: Throwable) {}
+            call.resolve()
+        }
+    }
+
+    /** Pede (uma vez) pro Android não "economizar" este app em segundo plano. */
+    @PluginMethod
+    fun bateria(call: PluginCall) {
+        try {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (!pm.isIgnoringBatteryOptimizations(context.packageName)) {
+                val i = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + context.packageName))
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(i)
+            }
+        } catch (e: Throwable) {}
+        call.resolve()
     }
 
     private suspend fun limpar() {
@@ -79,6 +111,5 @@ class ScreenSharePlugin : Plugin() {
         sala = null
         try { r?.localParticipant?.setScreenShareEnabled(false) } catch (e: Throwable) {}
         try { r?.disconnect() } catch (e: Throwable) {}
-        try { context.stopService(Intent(context, CallService::class.java)) } catch (e: Throwable) {}
     }
 }

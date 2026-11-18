@@ -7,6 +7,9 @@
 """
 import json, pathlib, re, shutil, sys
 
+LIVEKIT_ANDROID = "2.12.3"   # versão do SDK nativo do LiveKit (transmissão de tela do celular)
+KOTLIN = "2.0.21"
+
 raiz = pathlib.Path(__file__).resolve().parent.parent
 cfg = json.loads((raiz / "calls.config.json").read_text(encoding="utf-8"))
 base = cfg["baseUrl"].rstrip("/")
@@ -109,3 +112,67 @@ if icone.exists():
         sys.exit(f"ERRO: não consegui trocar o ícone: {e}")   # falha o build em vez de ficar com o ícone padrão
 else:
     print("AVISO: sem icon.png na raiz; ficou o ícone padrão")
+
+
+# ---- transmissão de tela nativa (Android): plugin Kotlin + SDK do LiveKit
+try:
+    pacote = cfg["appId"]
+    java = raiz / "android" / "app" / "src" / "main" / "java" / pacote.replace(".", "/")
+    java.mkdir(parents=True, exist_ok=True)
+    for velho in java.glob("MainActivity.*"):
+        velho.unlink()                                  # troca o MainActivity.java padrão pelo .kt
+    for arq in (raiz / "native").glob("*.kt"):
+        (java / arq.name).write_text(arq.read_text(encoding="utf-8").replace("__PACOTE__", pacote), encoding="utf-8")
+
+    # manifest: permissões + serviços
+    x = man.read_text(encoding="utf-8")
+    for p_ in ["FOREGROUND_SERVICE", "FOREGROUND_SERVICE_MEDIA_PROJECTION", "FOREGROUND_SERVICE_MICROPHONE", "POST_NOTIFICATIONS"]:
+        linha = f'<uses-permission android:name="android.permission.{p_}" />'
+        if linha not in x:
+            x = x.replace("<application", linha + "\n    <application", 1)
+    if "CallService" not in x:
+        servicos = (f'    <service android:name=".CallService" android:exported="false" android:foregroundServiceType="microphone" />\n'
+                    '    <service android:name="io.livekit.android.room.track.screencapture.ScreenCaptureService" '
+                    'android:exported="false" android:foregroundServiceType="mediaProjection" />\n    ')
+        x = x.replace("</application>", servicos + "</application>", 1)
+    man.write_text(x, encoding="utf-8")
+
+    andr = raiz / "android"
+    # variables.gradle: o LiveKit pede minSdk 24 e compileSdk 35
+    var = andr / "variables.gradle"
+    v = var.read_text(encoding="utf-8")
+    v = re.sub(r"minSdkVersion\s*=\s*\d+", "minSdkVersion = 24", v)
+    v = re.sub(r"compileSdkVersion\s*=\s*\d+", "compileSdkVersion = 35", v)
+    var.write_text(v, encoding="utf-8")
+    gp = andr / "gradle.properties"
+    t = gp.read_text(encoding="utf-8") if gp.exists() else ""
+    if "suppressUnsupportedCompileSdk" not in t:
+        gp.write_text(t.rstrip() + "\nandroid.suppressUnsupportedCompileSdk=35\n", encoding="utf-8")
+
+    # build.gradle (raiz): plugin do Kotlin + repositório extra
+    rb = andr / "build.gradle"
+    b = rb.read_text(encoding="utf-8")
+    if "kotlin-gradle-plugin" not in b:
+        b = re.sub(r"(classpath\s+['\"]com\.android\.tools\.build:gradle:[^'\"]+['\"])",
+                   r"\1\n        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:" + KOTLIN + "'", b, count=1)
+    if "jitpack.io" not in b:
+        b = re.sub(r"(allprojects\s*\{\s*repositories\s*\{)", r"\1\n        maven { url 'https://jitpack.io' }", b, count=1)
+    rb.write_text(b, encoding="utf-8")
+
+    # app/build.gradle: Kotlin + dependências
+    ab = andr / "app" / "build.gradle"
+    a = ab.read_text(encoding="utf-8")
+    if "kotlin-android" not in a:
+        a = a.replace("apply plugin: 'com.android.application'", "apply plugin: 'com.android.application'\napply plugin: 'kotlin-android'", 1)
+        a = re.sub(r"(?m)^android\s*\{", "android {\n    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }\n    kotlinOptions { jvmTarget = '17' }", a, count=1)
+        a += f"""
+
+dependencies {{
+    implementation "io.livekit:livekit-android:{LIVEKIT_ANDROID}"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1"
+}}
+"""
+    ab.write_text(a, encoding="utf-8")
+    print("OK: transmissão de tela nativa preparada (LiveKit Android " + LIVEKIT_ANDROID + ")")
+except Exception as e:
+    sys.exit(f"ERRO ao preparar a transmissão de tela: {e}")

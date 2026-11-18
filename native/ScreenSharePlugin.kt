@@ -15,7 +15,6 @@ import com.getcapacitor.annotation.ActivityCallback
 import com.getcapacitor.annotation.CapacitorPlugin
 import io.livekit.android.LiveKit
 import io.livekit.android.room.Room
-import io.livekit.android.room.track.screencapture.ScreenCaptureParams
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -54,7 +53,7 @@ class ScreenSharePlugin : Plugin() {
             try {
                 val r = LiveKit.create(context.applicationContext)
                 r.connect(url, token)
-                r.localParticipant.setScreenShareEnabled(true, ScreenCaptureParams(dados))
+                r.localParticipant.setScreenShareEnabled(true, dados)   // SDK 2.12.x: recebe direto o resultado da permissão
                 sala = r
                 call.resolve()
             } catch (e: Throwable) {

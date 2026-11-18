@@ -126,7 +126,8 @@ try:
 
     # manifest: permissões + serviços
     x = man.read_text(encoding="utf-8")
-    for p_ in ["FOREGROUND_SERVICE", "FOREGROUND_SERVICE_MEDIA_PROJECTION", "FOREGROUND_SERVICE_MICROPHONE", "POST_NOTIFICATIONS"]:
+    for p_ in ["FOREGROUND_SERVICE", "FOREGROUND_SERVICE_MEDIA_PROJECTION", "FOREGROUND_SERVICE_MICROPHONE", "POST_NOTIFICATIONS",
+               "WAKE_LOCK", "ACCESS_WIFI_STATE", "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"]:
         linha = f'<uses-permission android:name="android.permission.{p_}" />'
         if linha not in x:
             x = x.replace("<application", linha + "\n    <application", 1)

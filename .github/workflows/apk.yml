@@ -25,7 +25,9 @@ jobs:
       - run: npx cap sync android
       - run: chmod +x android/gradlew && cd android && ./gradlew assembleDebug
       - name: Mostrar impressão digital do APK
-        run: keytool -printcert -jarfile android/app/build/outputs/apk/debug/app-debug.apk | grep -E "SHA256" || true
+        run: |
+          APKSIGNER=$(ls $ANDROID_HOME/build-tools/*/apksigner | sort -V | tail -1)
+          $APKSIGNER verify --print-certs android/app/build/outputs/apk/debug/app-debug.apk | grep -i "SHA-256" || true
       - run: cp android/app/build/outputs/apk/debug/app-debug.apk CallsFFZ.apk
       - uses: actions/upload-artifact@v4
         with:

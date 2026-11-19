@@ -18,7 +18,13 @@ import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.ActivityCallback
 import com.getcapacitor.annotation.CapacitorPlugin
 import io.livekit.android.LiveKit
+import io.livekit.android.RoomOptions
 import io.livekit.android.room.Room
+import io.livekit.android.room.participant.VideoTrackPublishDefaults
+import io.livekit.android.room.track.LocalVideoTrackOptions
+import io.livekit.android.room.track.VideoCaptureParameter
+import io.livekit.android.room.track.VideoEncoding
+import org.webrtc.RtpParameters
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -55,10 +61,34 @@ class ScreenSharePlugin : Plugin() {
         ligarServicoDeVoz()
         escopo.launch {
             try {
-                val r = LiveKit.create(context.applicationContext)
+                // Qualidade vinda do site (menu "Transmissão de tela"). Padrão: fluidez, 720p 30 fps.
+                val fps = (call.getInt("fps", 30) ?: 30).coerceIn(10, 60)
+                val altura = call.getInt("altura", 720) ?: 720
+                val bitrate = (call.getInt("bitrate", 2500000) ?: 2500000).coerceIn(500000, 8000000)
+                val h264 = (call.getString("codec") ?: "h264") != "vp8"   // h264 = codificador do celular (leve, bom pra jogo)
+                // resolução da captura: mantém a proporção da tela do celular, lado maior = 1280 (720p) ou 1920 (1080p)
+                val dm = context.resources.displayMetrics
+                val maior = maxOf(dm.widthPixels, dm.heightPixels).toFloat()
+                val alvo = if (altura >= 1080) 1920f else 1280f
+                val esc = minOf(1f, alvo / maior)
+                val larg = ((dm.widthPixels * esc).toInt() / 2) * 2
+                val alt = ((dm.heightPixels * esc).toInt() / 2) * 2
+                val opcoes = RoomOptions(
+                    screenShareTrackCaptureDefaults = LocalVideoTrackOptions(
+                        isScreencast = true,
+                        captureParams = VideoCaptureParameter(larg, alt, fps),
+                    ),
+                    screenShareTrackPublishDefaults = VideoTrackPublishDefaults(
+                        videoEncoding = VideoEncoding(bitrate, fps),
+                        simulcast = false,   // uma camada só: gasta bem menos CPU/bateria
+                        videoCodec = if (h264) "h264" else "vp8",
+                        degradationPreference = RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE,   // se a rede apertar, perde nitidez e não fluidez
+                    ),
+                )
+                val r = LiveKit.create(context.applicationContext, opcoes)
+                sala = r
                 r.connect(url, token)
                 r.localParticipant.setScreenShareEnabled(true, dados)   // SDK 2.12.x: recebe direto o resultado da permissão
-                sala = r
                 call.resolve()
             } catch (e: Throwable) {
                 limpar()

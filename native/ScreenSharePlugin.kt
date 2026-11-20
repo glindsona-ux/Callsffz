@@ -4,10 +4,17 @@ import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.hardware.display.DisplayManager
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.DisplayMetrics
+import android.view.Display
+import android.view.WindowManager
 import android.media.projection.MediaProjectionManager
 import androidx.activity.result.ActivityResult
 import androidx.core.content.ContextCompat
@@ -39,6 +46,8 @@ import kotlinx.coroutines.launch
 @CapacitorPlugin(name = "ScreenShare")
 class ScreenSharePlugin : Plugin() {
     private var sala: Room? = null
+    private var ouvinteTela: DisplayManager.DisplayListener? = null
+    private var ultimaDim = ""
     private val escopo = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     @PluginMethod
@@ -64,19 +73,17 @@ class ScreenSharePlugin : Plugin() {
                 // Qualidade vinda do site (menu "Transmissão de tela"). Padrão: fluidez, 720p 30 fps.
                 val fps = (call.getInt("fps", 30) ?: 30).coerceIn(10, 60)
                 val altura = call.getInt("altura", 720) ?: 720
-                val bitrate = (call.getInt("bitrate", 2500000) ?: 2500000).coerceIn(500000, 8000000)
+                val bitrate = (call.getInt("bitrate", 4000000) ?: 4000000).coerceIn(500000, 12000000)
                 val h264 = (call.getString("codec") ?: "h264") != "vp8"   // h264 = codificador do celular (leve, bom pra jogo)
-                // resolução da captura: mantém a proporção da tela do celular, lado maior = 1280 (720p) ou 1920 (1080p)
-                val dm = context.resources.displayMetrics
-                val maior = maxOf(dm.widthPixels, dm.heightPixels).toFloat()
-                val alvo = if (altura >= 1080) 1920f else 1280f
-                val esc = minOf(1f, alvo / maior)
-                val larg = ((dm.widthPixels * esc).toInt() / 2) * 2
-                val alt = ((dm.heightPixels * esc).toInt() / 2) * 2
+                val nitido = call.getBoolean("nitido", false) ?: false     // true = textos/telas (prioriza nitidez); false = jogo (prioriza movimento)
+                // Quadro de captura QUADRADO (lado maior = 1280 em 720p ou 1920 em 1080p). O Android encaixa a tela inteira
+                // dentro dele, em pé ou deitada, sem distorcer. Assim, se o celular girar no meio da transmissão (jogo deitado),
+                // a imagem continua com a resolução cheia, em vez de ficar minúscula num quadro de formato errado.
+                val lado = if (altura >= 1080) 1920 else 1280
                 val opcoes = RoomOptions(
                     screenShareTrackCaptureDefaults = LocalVideoTrackOptions(
-                        isScreencast = true,
-                        captureParams = VideoCaptureParameter(larg, alt, fps),
+                        isScreencast = nitido,
+                        captureParams = VideoCaptureParameter(lado, lado, fps),
                     ),
                     screenShareTrackPublishDefaults = VideoTrackPublishDefaults(
                         videoEncoding = VideoEncoding(bitrate, fps),
@@ -89,7 +96,13 @@ class ScreenSharePlugin : Plugin() {
                 sala = r
                 r.connect(url, token)
                 r.localParticipant.setScreenShareEnabled(true, dados)   // SDK 2.12.x: recebe direto o resultado da permissão
-                call.resolve()
+                val d = medirTela()
+                ultimaDim = d.first.toString() + "x" + d.second.toString()
+                vigiarGiro()
+                val res = JSObject()
+                res.put("w", d.first)
+                res.put("h", d.second)
+                call.resolve(res)
             } catch (e: Throwable) {
                 limpar()
                 call.reject(e.message ?: "falha ao transmitir")
@@ -136,7 +149,72 @@ class ScreenSharePlugin : Plugin() {
         call.resolve()
     }
 
+    /** Tamanho REAL da tela agora (já considera em pé/deitada). Os outros usam isso pra enquadrar a transmissão. */
+    @Suppress("DEPRECATION")
+    private fun medirTela(): Pair<Int, Int> {
+        val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        val dm = DisplayMetrics()
+        wm.defaultDisplay.getRealMetrics(dm)
+        return Pair(dm.widthPixels, dm.heightPixels)
+    }
+
+    @PluginMethod
+    fun dimensoes(call: PluginCall) {
+        val d = medirTela()
+        val r = JSObject()
+        r.put("w", d.first)
+        r.put("h", d.second)
+        call.resolve(r)
+    }
+
+    /** Avisa o site quando a tela gira (funciona também com o app em segundo plano). */
+    private fun vigiarGiro() {
+        try {
+            if (ouvinteTela != null) return
+            val dmgr = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+            val l = object : DisplayManager.DisplayListener {
+                override fun onDisplayAdded(displayId: Int) {}
+                override fun onDisplayRemoved(displayId: Int) {}
+                override fun onDisplayChanged(displayId: Int) {
+                    if (displayId != Display.DEFAULT_DISPLAY) return
+                    val d = medirTela()
+                    val k = d.first.toString() + "x" + d.second.toString()
+                    if (k == ultimaDim) return
+                    ultimaDim = k
+                    val o = JSObject()
+                    o.put("w", d.first)
+                    o.put("h", d.second)
+                    notifyListeners("tela", o)
+                }
+            }
+            ouvinteTela = l
+            dmgr.registerDisplayListener(l, Handler(Looper.getMainLooper()))
+        } catch (e: Throwable) {}
+    }
+
+    private fun largarGiro() {
+        try {
+            val l = ouvinteTela
+            ouvinteTela = null
+            if (l != null) (context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager).unregisterDisplayListener(l)
+        } catch (e: Throwable) {}
+    }
+
+    /** Tela cheia estilo Discord: trava deitado/em pé conforme a transmissão ("paisagem", "retrato" ou "livre"). */
+    @PluginMethod
+    fun orientacao(call: PluginCall) {
+        val modo = call.getString("modo") ?: "livre"
+        val v = when (modo) {
+            "paisagem" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            "retrato" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            else -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+        try { activity.runOnUiThread { try { activity.requestedOrientation = v } catch (e: Throwable) {} } } catch (e: Throwable) {}
+        call.resolve()
+    }
+
     private suspend fun limpar() {
+        largarGiro()
         val r = sala
         sala = null
         try { r?.localParticipant?.setScreenShareEnabled(false) } catch (e: Throwable) {}

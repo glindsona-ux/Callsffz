@@ -7,7 +7,10 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.hardware.display.DisplayManager
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
@@ -18,6 +21,7 @@ import android.view.WindowManager
 import android.media.projection.MediaProjectionManager
 import androidx.activity.result.ActivityResult
 import androidx.core.content.ContextCompat
+import com.getcapacitor.JSArray
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
@@ -25,6 +29,8 @@ import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.ActivityCallback
 import com.getcapacitor.annotation.CapacitorPlugin
 import io.livekit.android.LiveKit
+import io.livekit.android.LiveKitOverrides
+import io.livekit.android.audio.NoAudioHandler
 import io.livekit.android.RoomOptions
 import io.livekit.android.room.Room
 import io.livekit.android.room.participant.VideoTrackPublishDefaults
@@ -92,7 +98,9 @@ class ScreenSharePlugin : Plugin() {
                         degradationPreference = RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE,   // se a rede apertar, perde nitidez e não fluidez
                     ),
                 )
-                val r = LiveKit.create(context.applicationContext, opcoes)
+                // Esta sala extra SÓ publica a tela: não pode mexer no áudio do celular. Sem isso ela pegava o "foco de áudio"
+                // (pausava a música) e puxava o som pro alto-falante em vez do fone. NoAudioHandler = não toca em nada de áudio.
+                val r = LiveKit.create(context.applicationContext, opcoes, LiveKitOverrides(audioHandler = NoAudioHandler()))
                 sala = r
                 r.connect(url, token)
                 r.localParticipant.setScreenShareEnabled(true, dados)   // SDK 2.12.x: recebe direto o resultado da permissão
@@ -131,6 +139,7 @@ class ScreenSharePlugin : Plugin() {
             call.resolve(r)
         } else {
             try { context.stopService(Intent(context, CallService::class.java)) } catch (e: Throwable) {}
+            soltarSaida()   // saiu da call: devolve o roteamento de áudio pro padrão do Android
             call.resolve()
         }
     }
@@ -211,6 +220,92 @@ class ScreenSharePlugin : Plugin() {
         }
         try { activity.runOnUiThread { try { activity.requestedOrientation = v } catch (e: Throwable) {} } } catch (e: Throwable) {}
         call.resolve()
+    }
+
+    /* ---------- saída de áudio da call (telefone / alto-falante / bluetooth / fone), estilo Discord ---------- */
+    private fun audio(): AudioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+
+    private fun categoria(t: Int): String = when (t) {
+        AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "telefone"
+        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "alto-falante"
+        AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES, AudioDeviceInfo.TYPE_USB_HEADSET -> "fone"
+        AudioDeviceInfo.TYPE_BLUETOOTH_SCO, AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, 26, 27, 30 -> "bluetooth"   // 26/27/30 = Bluetooth LE
+        else -> "externo"
+    }
+
+    @Suppress("DEPRECATION")
+    @PluginMethod
+    fun saidas(call: PluginCall) {
+        val arr = JSArray()
+        try {
+            val am = audio()
+            if (Build.VERSION.SDK_INT >= 31) {
+                val atual = am.communicationDevice
+                for (d in am.availableCommunicationDevices) {
+                    val o = JSObject()
+                    o.put("id", d.id)
+                    o.put("tipo", categoria(d.type))
+                    o.put("nome", d.productName?.toString() ?: "")
+                    o.put("ativo", atual != null && atual.id == d.id)
+                    arr.put(o)
+                }
+            } else {
+                val saidas = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+                val bt = saidas.firstOrNull { categoria(it.type) == "bluetooth" }
+                val fio = saidas.firstOrNull { categoria(it.type) == "fone" }
+                val ativoBt = bt != null && am.isBluetoothScoOn
+                val ativoAlto = !ativoBt && am.isSpeakerphoneOn
+                val ativoFio = !ativoBt && !ativoAlto && fio != null
+                fun item(id: Int, tipo: String, nome: String, ativo: Boolean) {
+                    val o = JSObject()
+                    o.put("id", id)
+                    o.put("tipo", tipo)
+                    o.put("nome", nome)
+                    o.put("ativo", ativo)
+                    arr.put(o)
+                }
+                item(-1, "telefone", "", !ativoBt && !ativoAlto && !ativoFio)
+                item(-2, "alto-falante", "", ativoAlto)
+                if (fio != null) item(fio.id, "fone", fio.productName?.toString() ?: "", ativoFio)
+                if (bt != null) item(bt.id, "bluetooth", bt.productName?.toString() ?: "", ativoBt)
+            }
+        } catch (e: Throwable) {}
+        val r = JSObject()
+        r.put("lista", arr)
+        call.resolve(r)
+    }
+
+    @Suppress("DEPRECATION")
+    @PluginMethod
+    fun escolherSaida(call: PluginCall) {
+        val id = call.getInt("id", -1) ?: -1
+        val tipo = call.getString("tipo") ?: ""
+        try {
+            val am = audio()
+            if (am.mode != AudioManager.MODE_IN_COMMUNICATION) am.mode = AudioManager.MODE_IN_COMMUNICATION
+            if (Build.VERSION.SDK_INT >= 31) {
+                val d = am.availableCommunicationDevices.firstOrNull { it.id == id }
+                if (d == null || !am.setCommunicationDevice(d)) { call.reject("saída indisponível"); return }
+            } else {
+                when (tipo) {
+                    "bluetooth" -> { am.isSpeakerphoneOn = false; am.startBluetoothSco(); am.isBluetoothScoOn = true }
+                    "alto-falante" -> { am.stopBluetoothSco(); am.isBluetoothScoOn = false; am.isSpeakerphoneOn = true }
+                    else -> { am.stopBluetoothSco(); am.isBluetoothScoOn = false; am.isSpeakerphoneOn = false }
+                }
+            }
+            call.resolve()
+        } catch (e: Throwable) {
+            call.reject(e.message ?: "falha ao trocar a saída")
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun soltarSaida() {
+        try {
+            val am = audio()
+            if (Build.VERSION.SDK_INT >= 31) am.clearCommunicationDevice()
+            else { am.stopBluetoothSco(); am.isBluetoothScoOn = false; am.isSpeakerphoneOn = false }
+        } catch (e: Throwable) {}
     }
 
     private suspend fun limpar() {

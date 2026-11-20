@@ -28,6 +28,7 @@ import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.ActivityCallback
 import com.getcapacitor.annotation.CapacitorPlugin
+import io.livekit.android.AudioOptions
 import io.livekit.android.LiveKit
 import io.livekit.android.LiveKitOverrides
 import io.livekit.android.audio.NoAudioHandler
@@ -100,7 +101,7 @@ class ScreenSharePlugin : Plugin() {
                 )
                 // Esta sala extra SÓ publica a tela: não pode mexer no áudio do celular. Sem isso ela pegava o "foco de áudio"
                 // (pausava a música) e puxava o som pro alto-falante em vez do fone. NoAudioHandler = não toca em nada de áudio.
-                val r = LiveKit.create(context.applicationContext, opcoes, LiveKitOverrides(audioHandler = NoAudioHandler()))
+                val r = LiveKit.create(context.applicationContext, opcoes, LiveKitOverrides(audioOptions = AudioOptions(audioHandler = NoAudioHandler())))
                 sala = r
                 r.connect(url, token)
                 r.localParticipant.setScreenShareEnabled(true, dados)   // SDK 2.12.x: recebe direto o resultado da permissão

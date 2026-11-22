@@ -21,6 +21,11 @@ jobs:
         run: |
           if [ -n "$KS" ]; then echo "$KS" | base64 -d > android/ffz.keystore; echo "chave fixa carregada"; else echo "sem chave fixa (assinatura de teste)"; fi
       - run: pip install --break-system-packages pillow || true
+      - name: Firebase (push com o app fechado)
+        env:
+          GS: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GS" ]; then printf '%s' "$GS" > google-services.json; echo "google-services.json carregado"; else echo "sem google-services.json (sem push com o app fechado)"; fi
       - run: python3 scripts/preparar.py
       - run: npx cap sync android
       - run: chmod +x android/gradlew && cd android && ./gradlew assembleDebug

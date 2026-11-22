@@ -2,7 +2,7 @@
   "name": "calls-ffz",
   "version": "1.0.0",
   "private": true,
-  "description": "CALLS FFZ - app da FFZ Sua Call (Android/iOS) feito com Capacitor",
+  "description": "HAVEN - app (Android/iOS) feito com Capacitor",
   "dependencies": {
     "@capacitor/android": "^6.0.0",
     "@capacitor/app": "^6.0.0",

@@ -127,7 +127,7 @@ try:
     # manifest: permissões + serviços
     x = man.read_text(encoding="utf-8")
     for p_ in ["FOREGROUND_SERVICE", "FOREGROUND_SERVICE_MEDIA_PROJECTION", "FOREGROUND_SERVICE_MICROPHONE", "POST_NOTIFICATIONS",
-               "WAKE_LOCK", "ACCESS_WIFI_STATE", "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"]:
+               "WAKE_LOCK", "ACCESS_WIFI_STATE", "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS", "FOREGROUND_SERVICE_SPECIAL_USE", "VIBRATE"]:
         linha = f'<uses-permission android:name="android.permission.{p_}" />'
         if linha not in x:
             x = x.replace("<application", linha + "\n    <application", 1)
@@ -136,7 +136,20 @@ try:
                     '    <service android:name="io.livekit.android.room.track.screencapture.ScreenCaptureService" '
                     'android:exported="false" android:foregroundServiceType="mediaProjection" />\n    ')
         x = x.replace("</application>", servicos + "</application>", 1)
+    if "NotifService" not in x:
+        servico_n = ('    <service android:name=".NotifService" android:exported="false" android:foregroundServiceType="specialUse">\n'
+                     '        <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Mantem o app conectado para receber avisos de mensagens com a tela apagada" />\n'
+                     '    </service>\n    ')
+        x = x.replace("</application>", servico_n + "</application>", 1)
     man.write_text(x, encoding="utf-8")
+
+    # ícone pequeno das notificações (Android exige silhueta de uma cor só): balão de conversa
+    (res / "drawable").mkdir(parents=True, exist_ok=True)
+    (res / "drawable" / "ic_stat_haven.xml").write_text(
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">\n'
+        '    <path android:fillColor="#FFFFFFFF" android:pathData="M4,3h16a2,2 0 0 1 2,2v11a2,2 0 0 1 -2,2H9l-5,4v-4a2,2 0 0 1 -2,-2V5a2,2 0 0 1 2,-2z"/>\n'
+        '</vector>\n', encoding="utf-8")
 
     andr = raiz / "android"
     # variables.gradle: o LiveKit pede minSdk 24 e compileSdk 35

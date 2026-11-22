@@ -1,4 +1,4 @@
-name: Gerar APK (CALLS FFZ)
+name: Gerar APK (HAVEN)
 on: workflow_dispatch
 
 permissions:
@@ -37,6 +37,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: apk
-          name: CALLS FFZ (APK)
+          name: HAVEN (APK)
           files: CallsFFZ.apk
           make_latest: true

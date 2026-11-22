@@ -141,6 +141,19 @@ try:
                      '        <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Mantem o app conectado para receber avisos de mensagens com a tela apagada" />\n'
                      '    </service>\n    ')
         x = x.replace("</application>", servico_n + "</application>", 1)
+    # atividade (jogo aberto + música tocando): acesso de uso, lista de apps e leitor de mídia (a pessoa libera nas configurações)
+    if "xmlns:tools" not in x:
+        x = x.replace("<manifest ", '<manifest xmlns:tools="http://schemas.android.com/tools" ', 1)
+    for linha in ('<uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />',
+                  '<uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />'):
+        if linha not in x:
+            x = x.replace("<application", linha + "\n    <application", 1)
+    if "HavenMediaListener" not in x:
+        leitor = ('    <service android:name=".HavenMediaListener" android:exported="true" android:label="HAVEN" '
+                  'android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">\n'
+                  '        <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>\n'
+                  '    </service>\n    ')
+        x = x.replace("</application>", leitor + "</application>", 1)
     man.write_text(x, encoding="utf-8")
 
     # ícone pequeno das notificações (Android exige silhueta de uma cor só): balão de conversa

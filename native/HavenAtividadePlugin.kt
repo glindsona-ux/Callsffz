@@ -7,13 +7,18 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.media.MediaMetadata
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.net.Uri
 import android.os.Build
 import android.os.Process
+import android.os.SystemClock
 import android.provider.Settings
+import android.util.Base64
+import java.io.ByteArrayOutputStream
 import androidx.core.app.NotificationManagerCompat
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
@@ -23,7 +28,7 @@ import com.getcapacitor.annotation.CapacitorPlugin
 
 /**
  * Atividade do HAVEN no Android: qual JOGO está aberto e qual MÚSICA está tocando. O site (atividade.js) chama a cada ~15 s:
- *   Capacitor.Plugins.HavenAtividade.ler()            -> { uso, notif, jogo?: {pacote, nome, jogo}, musica?: {pacote, titulo, artista, app, tocando, dur, pos} }
+ *   Capacitor.Plugins.HavenAtividade.ler()            -> { uso, notif, jogo?: {pacote, nome, jogo}, musica?: {pacote, titulo, artista, app, tocando, dur, pos, capa(jpeg b64)} }  (jogo.icone = png b64)
  *   Capacitor.Plugins.HavenAtividade.estado()         -> { uso, notif }
  *   Capacitor.Plugins.HavenAtividade.abrirAcessoUso() / abrirAcessoNotif()   -> abre a tela de permissão do Android
  *
@@ -40,6 +45,10 @@ class HavenAtividadePlugin : Plugin() {
         private const val GRACA_MS = 120_000L          // depois de sair do jogo (ex.: voltar pro HAVEN pra responder), ainda conta por 2 min
         @Volatile private var ultimoJogo: String? = null
         @Volatile private var ultimoJogoEm = 0L
+        // imagens já codificadas (não refazer a cada 15 s): chave -> base64
+        @Volatile private var capaChave: String? = null
+        @Volatile private var capaB64: String = ""
+        private val iconesJogo = HashMap<String, String>()
 
         /** Espelho do JOGOS do atividade.py: jogos conhecidos mesmo que o Android não os marque como "jogo". */
         private val CONHECIDOS = setOf(
@@ -82,6 +91,37 @@ class HavenAtividadePlugin : Plugin() {
         return fg
     }
 
+    /** Recorta no centro (quadrado), reduz pra `lado` px e devolve base64. JPEG pra capas, PNG pra ícones (têm transparência). */
+    private fun bitmapB64(src: Bitmap?, lado: Int, jpeg: Boolean): String {
+        if (src == null || src.width <= 0 || src.height <= 0) return ""
+        return try {
+            val m = minOf(src.width, src.height)
+            val quad = Bitmap.createBitmap(src, (src.width - m) / 2, (src.height - m) / 2, m, m)
+            val peq = Bitmap.createScaledBitmap(quad, lado, lado, true)
+            val out = ByteArrayOutputStream()
+            if (jpeg) peq.compress(Bitmap.CompressFormat.JPEG, 80, out) else peq.compress(Bitmap.CompressFormat.PNG, 100, out)
+            val b = out.toByteArray()
+            if (b.size > 40_000) "" else Base64.encodeToString(b, Base64.NO_WRAP)   // o servidor também recusa > 45 KB
+        } catch (e: Throwable) { "" }
+    }
+
+    /** Ícone do app instalado (é assim que Free Fire e Free Fire MAX aparecem cada um com o seu). */
+    private fun iconeApp(pacote: String): String {
+        iconesJogo[pacote]?.let { return it }
+        val b64 = try {
+            val d = context.packageManager.getApplicationIcon(pacote)
+            val w = if (d.intrinsicWidth > 0) d.intrinsicWidth else 192
+            val h = if (d.intrinsicHeight > 0) d.intrinsicHeight else 192
+            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            val c = Canvas(bmp)
+            d.setBounds(0, 0, c.width, c.height)
+            d.draw(c)
+            bitmapB64(bmp, 96, false)
+        } catch (e: Throwable) { "" }
+        if (b64.isNotEmpty()) iconesJogo[pacote] = b64
+        return b64
+    }
+
     /** (nome do app, é jogo?) */
     @Suppress("DEPRECATION")
     private fun infoApp(pacote: String): Pair<String, Boolean> {
@@ -105,7 +145,7 @@ class HavenAtividadePlugin : Plugin() {
         }
         if (pacote == null) return null
         val (nome, jogo) = infoApp(pacote)
-        return JSObject().put("pacote", pacote).put("nome", nome).put("jogo", jogo)
+        return JSObject().put("pacote", pacote).put("nome", nome).put("jogo", jogo).put("icone", iconeApp(pacote))
     }
 
     private fun musicaAtual(): JSObject? {
@@ -119,9 +159,22 @@ class HavenAtividadePlugin : Plugin() {
             val titulo = md.getString(MediaMetadata.METADATA_KEY_TITLE) ?: continue
             val artista = md.getString(MediaMetadata.METADATA_KEY_ARTIST) ?: md.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST) ?: ""
             val dur = md.getLong(MediaMetadata.METADATA_KEY_DURATION).coerceAtLeast(0L)
-            val pos = st.position.coerceAtLeast(0L)
+            // st.position é a posição NO MOMENTO da última atualização do player (o Spotify só atualiza em play/seek/troca de faixa).
+            // A posição de agora = position + tempo que passou desde então × velocidade.
+            var pos = st.position
+            if (st.lastPositionUpdateTime > 0) pos += ((SystemClock.elapsedRealtime() - st.lastPositionUpdateTime) * st.playbackSpeed).toLong()
+            pos = pos.coerceAtLeast(0L)
+            if (dur > 0) pos = pos.coerceAtMost(dur)
+            // capa do álbum (cada player guarda numa chave diferente)
+            val chave = c.packageName + "|" + titulo + "|" + artista
+            if (chave != capaChave) {
+                val bmp = md.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART) ?: md.getBitmap(MediaMetadata.METADATA_KEY_ART)
+                    ?: md.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
+                capaB64 = bitmapB64(bmp, 160, true)
+                capaChave = if (bmp != null) chave else null   // sem capa ainda (o Spotify às vezes demora): tenta de novo no próximo ciclo
+            }
             return JSObject().put("pacote", c.packageName).put("titulo", titulo).put("artista", artista)
-                .put("app", infoApp(c.packageName).first).put("tocando", true).put("dur", dur).put("pos", pos)
+                .put("app", infoApp(c.packageName).first).put("tocando", true).put("dur", dur).put("pos", pos).put("capa", capaB64)
         }
         return null
     }

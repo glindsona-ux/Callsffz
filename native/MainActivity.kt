@@ -14,6 +14,7 @@ class MainActivity : BridgeActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         registerPlugin(ScreenSharePlugin::class.java)   // plugin de tela + serviço da call (nativo)
         registerPlugin(HavenNotifyPlugin::class.java)   // notificações do Haven (nativo)
+        registerPlugin(HavenAtividadePlugin::class.java) // atividade: jogo aberto / música tocando (nativo)
         super.onCreate(savedInstanceState)
         abrirLink(intent)
         abrirNotificacao(intent, frio = true)

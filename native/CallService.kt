@@ -33,7 +33,7 @@ class CallService : Service() {
         val abrir = packageManager.getLaunchIntentForPackage(packageName)
         val pi = if (abrir != null) PendingIntent.getActivity(this, 0, abrir, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT) else null
         val n = NotificationCompat.Builder(this, canal)
-            .setContentTitle("FFZ Call")
+            .setContentTitle("HAVEN")
             .setContentText("Você está em call. Toque para voltar.")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentIntent(pi)

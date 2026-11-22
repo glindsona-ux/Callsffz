@@ -13,7 +13,12 @@ const config: CapacitorConfig = {
     // na página (sem isso o site não enxerga o plugin de transmissão de tela).
     url: base + '/call/',
     // páginas que o app pode abrir dentro dele (site da call + login do Discord + mídia)
-    allowNavigation: [host, 'discord.com', '*.discord.com', '*.livekit.cloud'],
+    allowNavigation: [host, 'discord.com', '*.discord.com', '*.livekit.cloud',
+      // login das conexões do perfil (Steam, GitHub, Twitch, Spotify, Reddit, Roblox, Xbox/Minecraft, Battle.net)
+      // abre DENTRO do app, igual ao Discord. O Google (YouTube) bloqueia login em app embutido e continua abrindo no navegador.
+      'steamcommunity.com', '*.steamcommunity.com', 'github.com', '*.github.com', '*.twitch.tv', 'accounts.spotify.com',
+      '*.spotify.com', '*.reddit.com', '*.roblox.com', '*.live.com', '*.microsoftonline.com', '*.microsoft.com', '*.xbox.com',
+      '*.battle.net'],
   },
   android: { allowMixedContent: false, appendUserAgent: 'CallsFFZApp' },
 };

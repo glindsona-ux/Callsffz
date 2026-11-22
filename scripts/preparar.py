@@ -136,6 +136,11 @@ try:
                     '    <service android:name="io.livekit.android.room.track.screencapture.ScreenCaptureService" '
                     'android:exported="false" android:foregroundServiceType="mediaProjection" />\n    ')
         x = x.replace("</application>", servicos + "</application>", 1)
+    if "HavenFcmService" not in x:      # push (Firebase): acorda o app fechado pra mostrar o aviso
+        fcm = ('    <service android:name=".HavenFcmService" android:exported="false">\n'
+               '        <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>\n'
+               '    </service>\n    ')
+        x = x.replace("</application>", fcm + "</application>", 1)
     if "NotifService" not in x:
         servico_n = ('    <service android:name=".NotifService" android:exported="false" android:foregroundServiceType="specialUse">\n'
                      '        <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Mantem o app conectado para receber avisos de mensagens com a tela apagada" />\n'
@@ -199,7 +204,15 @@ dependencies {{
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1"
 }}
 """
+    if "firebase-messaging" not in a:   # biblioteca do push; só funciona de fato com o google-services.json (senão fica inativa, sem quebrar nada)
+        a += '\ndependencies {\n    implementation platform("com.google.firebase:firebase-bom:33.5.1")\n    implementation "com.google.firebase:firebase-messaging"\n}\n'
     ab.write_text(a, encoding="utf-8")
+    gs = raiz / "google-services.json"
+    if gs.exists():
+        shutil.copy(gs, andr / "app" / "google-services.json")
+        print("OK: Firebase ligado (google-services.json) -> push com o app fechado")
+    else:
+        print("AVISO: sem google-services.json na raiz; o APK não recebe push com o app fechado (veja o README)")
     print("OK: transmissão de tela nativa preparada (LiveKit Android " + LIVEKIT_ANDROID + ")")
 except Exception as e:
     sys.exit(f"ERRO ao preparar a transmissão de tela: {e}")

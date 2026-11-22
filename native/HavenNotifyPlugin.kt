@@ -50,6 +50,10 @@ class HavenNotifyPlugin : Plugin() {
         @Volatile var pendente: Triple<String, String, String>? = null
         private val linhas = HashMap<String, ArrayList<String>>()   // últimas mensagens de cada canal (pra empilhar)
 
+        /** true enquanto o app está visível (MainActivity.onStart/onStop). Com ele na tela, o push não notifica: o site mostra o banner. */
+        @Volatile var emPrimeiroPlano = false
+        private val vistos = LinkedHashSet<String>()                 // canal:mensagem já mostrados (o aviso pode chegar por push E pelo canal ao vivo)
+
         fun criarCanais(ctx: Context) {
             if (Build.VERSION.SDK_INT < 26) return
             val nm = ctx.getSystemService(NotificationManager::class.java)
@@ -68,6 +72,13 @@ class HavenNotifyPlugin : Plugin() {
 
         fun mostrar(ctx: Context, titulo: String, texto: String, s: String, c: String, m: String, tp: String, nome: String) {
             if (!permitido(ctx)) return
+            if (c.isNotEmpty() && m.isNotEmpty() && m != "0") {      // mesma mensagem por dois caminhos: mostra uma vez só
+                val k = "$c:$m"
+                val nova = synchronized(vistos) {
+                    if (vistos.contains(k)) false else { vistos.add(k); if (vistos.size > 300) vistos.remove(vistos.first()); true }
+                }
+                if (!nova) return
+            }
             criarCanais(ctx)
             val abrir = Intent(ctx, MainActivity::class.java).apply {
                 action = "haven.abrir." + c + "." + m
@@ -168,6 +179,24 @@ class HavenNotifyPlugin : Plugin() {
             call.getString("c") ?: "", call.getString("m") ?: "0", call.getString("tp") ?: "msg", call.getString("nome") ?: ""
         )
         call.resolve()
+    }
+
+    /** Token do Firebase (FCM) deste aparelho: o site manda pro servidor, que passa a empurrar os avisos mesmo com o app fechado. */
+    @PluginMethod
+    fun pegarToken(call: PluginCall) {
+        try {
+            if (com.google.firebase.FirebaseApp.getApps(context).isEmpty()) {   // APK feito sem google-services.json
+                call.resolve(JSObject().put("disponivel", false)); return
+            }
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().token.addOnCompleteListener { t ->
+                val o = JSObject()
+                val tk = if (t.isSuccessful) t.result else null
+                if (!tk.isNullOrEmpty()) { o.put("disponivel", true); o.put("token", tk) } else o.put("disponivel", false)
+                call.resolve(o)
+            }
+        } catch (e: Throwable) {
+            call.resolve(JSObject().put("disponivel", false))
+        }
     }
 
     @PluginMethod

@@ -32,15 +32,16 @@ class MainActivity : BridgeActivity() {
     }
 
     /** Em segundo plano o WebView (a call) não pode ser pausado. */
+    override fun onStart() { super.onStart(); HavenNotifyPlugin.emPrimeiroPlano = true }
     override fun onPause() { super.onPause(); manterWebView() }
-    override fun onStop() { super.onStop(); manterWebView() }
+    override fun onStop() { super.onStop(); HavenNotifyPlugin.emPrimeiroPlano = false; manterWebView() }
 
     private fun manterWebView() {
         try { bridge?.webView?.let { it.onResume(); it.resumeTimers() } } catch (e: Throwable) {}
     }
 
     override fun onDestroy() {
-        if (isFinishing) {   // fechou o app de vez: encerra o serviço da call
+        if (isFinishing) {   // fechou o app de vez: encerra o serviço da call (o push continua funcionando)
             try { stopService(Intent(this, CallService::class.java)) } catch (e: Throwable) {}
             try { stopService(Intent(this, NotifService::class.java)) } catch (e: Throwable) {}
         }

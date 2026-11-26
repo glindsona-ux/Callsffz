@@ -62,7 +62,7 @@ class ScreenSharePlugin : Plugin() {
         if (call.getString("url").isNullOrEmpty() || call.getString("token").isNullOrEmpty()) {
             call.reject("faltam url/token"); return
         }
-        if (sala != null) { call.reject("já está transmitindo"); return }
+        if (sala != null) { escopo.launch { limpar() } }   // sobrou transmissão antiga: derruba e começa limpa
         val mpm = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         startActivityForResult(call, mpm.createScreenCaptureIntent(), "aoPermitirTela")
     }
@@ -313,7 +313,8 @@ class ScreenSharePlugin : Plugin() {
         largarGiro()
         val r = sala
         sala = null
-        try { r?.localParticipant?.setScreenShareEnabled(false) } catch (e: Throwable) {}
+        // Nunca trava: se o LiveKit demorar pra despublicar, desconecta mesmo assim (desconectar já derruba a captura).
+        try { kotlinx.coroutines.withTimeoutOrNull(2000) { r?.localParticipant?.setScreenShareEnabled(false) } } catch (e: Throwable) {}
         try { r?.disconnect() } catch (e: Throwable) {}
     }
 }

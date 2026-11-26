@@ -216,3 +216,44 @@ dependencies {{
     print("OK: transmissão de tela nativa preparada (LiveKit Android " + LIVEKIT_ANDROID + ")")
 except Exception as e:
     sys.exit(f"ERRO ao preparar a transmissão de tela: {e}")
+
+
+# ---- tela de abertura nativa do Android: só o fundo escuro, SEM ícone.
+# (Antes o Android 12+ mostrava o ícone do app (um H) por uma fração de segundo e logo depois o H animado do site: aparecia 2 H.
+#  Agora o sistema mostra só o fundo #12131B e o único H é o animado, que o site desenha.)
+try:
+    res_s = raiz / "android" / "app" / "src" / "main" / "res"
+    (res_s / "drawable").mkdir(parents=True, exist_ok=True)
+    (res_s / "drawable" / "ffz_splash_vazio.xml").write_text(
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" '
+        'android:viewportWidth="24" android:viewportHeight="24">\n'
+        '    <path android:fillColor="#00000000" android:pathData="M0,0h24v24h-24z"/>\n'
+        '</vector>\n', encoding="utf-8")
+    (res_s / "drawable" / "ffz_splash_fundo.xml").write_text(
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">\n'
+        '    <solid android:color="#FF12131B"/>\n'
+        '</shape>\n', encoding="utf-8")
+    estilos = res_s / "values" / "styles.xml"
+    if estilos.exists():
+        s_ = estilos.read_text(encoding="utf-8")
+        if "ffz_splash_vazio" not in s_:
+            def _launch(m):
+                corpo = re.sub(r'\s*<item name="android:background">[^<]*</item>', "", m.group(2))
+                novos = ('\n        <item name="android:background">@drawable/ffz_splash_fundo</item>'
+                         '\n        <item name="windowSplashScreenBackground">#FF12131B</item>'
+                         '\n        <item name="windowSplashScreenAnimatedIcon">@drawable/ffz_splash_vazio</item>'
+                         '\n        <item name="android:windowSplashScreenBackground">#FF12131B</item>'
+                         '\n        <item name="android:windowSplashScreenIconBackgroundColor">#00000000</item>\n    ')
+                return m.group(1) + corpo.rstrip() + novos + m.group(3)
+            s2, n = re.subn(r'(<style name="AppTheme\.NoActionBarLaunch"[^>]*>)(.*?)(</style>)', _launch, s_, count=1, flags=re.S)
+            if n:
+                estilos.write_text(s2, encoding="utf-8")
+                print("OK: tela de abertura nativa sem ícone (só fundo escuro)")
+            else:
+                print("AVISO: tema AppTheme.NoActionBarLaunch não encontrado; abertura nativa ficou como o padrão")
+    else:
+        print("AVISO: styles.xml não encontrado; abertura nativa ficou como o padrão")
+except Exception as e:
+    print(f"AVISO: não consegui ajustar a abertura nativa: {e}")      # não derruba o build

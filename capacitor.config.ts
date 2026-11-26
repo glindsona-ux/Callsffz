@@ -8,6 +8,7 @@ const config: CapacitorConfig = {
   appId: cfg.appId,
   appName: cfg.appName,
   webDir: 'www',
+  backgroundColor: '#12131b',     // fundo do WebView enquanto o site carrega (sem flash branco/cinza entre a abertura e o H animado)
   server: {
     // O app abre o site da call como página principal. Só assim o Capacitor injeta a ponte nativa
     // na página (sem isso o site não enxerga o plugin de transmissão de tela).
